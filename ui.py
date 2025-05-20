@@ -203,10 +203,16 @@ class SkillRerollUI:
         # Make the text widget read-only
         self.log_text.config(state=tk.DISABLED)
 
+        # Detailed logging checkbox
+        self.detailed_logging = tk.BooleanVar(value=False)
+        detailed_check = ttk.Checkbutton(main_frame, text="Detailed logging",
+                                        variable=self.detailed_logging)
+        detailed_check.grid(row=9, column=0, columnspan=2, sticky=tk.W)
+
         # Kill switch info
         kill_switch_label = ttk.Label(main_frame, text="Emergency Stop: Press ESC key anytime",
                                      foreground="red", font=("Arial", 9, "bold"))
-        kill_switch_label.grid(row=9, column=0, columnspan=4, sticky=tk.W)
+        kill_switch_label.grid(row=9, column=2, columnspan=2, sticky=tk.W)
 
         # Buttons
         button_frame = ttk.Frame(main_frame)
@@ -319,8 +325,9 @@ class SkillRerollUI:
                 desired_stats['defensive'].append((stat_name, def_val, variation))
                 self.update_status(f"Looking for {stat_name} with variation {variation}")
 
-        # Start the automation (always in performance mode)
-        if self.automator.start(self.apply_button_coords, self.change_button_coords, desired_stats):
+        # Start the automation with detailed logging setting
+        detailed_mode = self.detailed_logging.get()
+        if self.automator.start(self.apply_button_coords, self.change_button_coords, desired_stats, detailed_mode):
             self.running = True
             self.start_button.config(state=tk.DISABLED)
             self.stop_button.config(state=tk.NORMAL)

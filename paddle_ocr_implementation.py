@@ -119,11 +119,14 @@ def get_y_center(box):
         return 0
     return (box[0][1] + box[2][1]) / 2
 
-def parse_detected_text(detected_items, status_callback=None):
+def parse_detected_text(detected_items, status_callback=None, detailed_logging=False, unmapped_ocr_counter=None):
     """
     Enhanced parser to find stats and values using y-coordinates for matching.
-    Includes detailed logging of OCR detection and mapping process.
+    Includes optional detailed logging of OCR detection and mapping process.
     detected_items: List of tuples (box, text, confidence) from OCR
+    status_callback: Function to call with status updates
+    detailed_logging: Whether to log detailed information
+    unmapped_ocr_counter: Dictionary to track unmapped OCR results
     """
     found_stats = {}
 
@@ -136,16 +139,21 @@ def parse_detected_text(detected_items, status_callback=None):
     # Create normalized versions of stat names for matching
     normalized_stats = {normalize_text(stat): stat for stat in stat_names}
 
-    if status_callback:
-        status_callback(f"📝 OCR detected {len(detected_items)} text elements")
+    # Only log detailed information if detailed_logging is enabled
+    if detailed_logging and status_callback:
+        status_callback(f"OCR detected {len(detected_items)} text elements")
 
     # Identify stats and values with their y-coordinates
     stats_with_y = []  # (y_center, text, stat_name, similarity)
     values_with_y = []  # (y_center, text, value)
 
-    # Skip detailed OCR results for performance
+    # Track raw OCR text for unmapped results
+    raw_ocr_texts = []
 
     for box, text, _ in detected_items:
+        # Add to raw OCR texts for tracking unmapped results
+        raw_ocr_texts.append(text)
+
         # Get the y-center of this text
         y_center = get_y_center(box)
 
@@ -164,8 +172,8 @@ def parse_detected_text(detected_items, status_callback=None):
                 stats_with_y.append((y_center, text, stat_name, 1.0))  # Perfect match
                 values_with_y.append((y_center, text, value))
 
-                if status_callback:
-                    status_callback(f"🔍 Special case: Split '{text}' into stat '{stat_name}' and value {value}")
+                if detailed_logging and status_callback:
+                    status_callback(f"Special case: Split '{text}' into stat '{stat_name}' and value {value}")
                 continue
 
         # Check if this text contains a value - improved pattern to catch more variations
@@ -174,8 +182,8 @@ def parse_detected_text(detected_items, status_callback=None):
         if value_match:
             value = int(value_match.group(1))
             values_with_y.append((y_center, text, value))
-            if status_callback:
-                status_callback(f"🔢 Found value: {value} in '{text}'")
+            if detailed_logging and status_callback:
+                status_callback(f"Found value: {value} in '{text}'")
             continue
 
         # Normalize the detected text
@@ -199,11 +207,15 @@ def parse_detected_text(detected_items, status_callback=None):
         # This threshold is adjusted for our simplified similarity function
         if best_match and best_similarity >= 0.6:
             stats_with_y.append((y_center, text, best_match, best_similarity))
-            if status_callback:
-                status_callback(f"✅ Matched '{text}' to '{best_match}' (similarity: {best_similarity:.2f})")
+            if detailed_logging and status_callback:
+                status_callback(f"Matched '{text}' to '{best_match}' (similarity: {best_similarity:.2f})")
         else:
-            if status_callback:
-                status_callback(f"❌ No good match found for '{text}'")
+            # Track unmapped OCR text
+            if unmapped_ocr_counter is not None:
+                unmapped_ocr_counter[text] = unmapped_ocr_counter.get(text, 0) + 1
+
+            if detailed_logging and status_callback:
+                status_callback(f"No match found for '{text}'")
 
     # For each stat, find the value with the closest y-coordinate
 
@@ -223,10 +235,10 @@ def parse_detected_text(detected_items, status_callback=None):
         # If we found a value within a reasonable distance (e.g., 50 pixels)
         if closest_value is not None and min_distance < 50:
             found_stats[stat_name] = closest_value
-            if status_callback:
-                status_callback(f"✅ Paired '{stat_name}' with {closest_value}")
+            if detailed_logging and status_callback:
+                status_callback(f"Paired '{stat_name}' with {closest_value}")
         else:
-            if status_callback:
-                status_callback(f"❌ Could not find a value for '{stat_name}'")
+            if detailed_logging and status_callback:
+                status_callback(f"Could not find a value for '{stat_name}'")
 
     return found_stats

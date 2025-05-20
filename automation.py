@@ -18,12 +18,16 @@ class SkillRerollAutomator:
         self.apply_button_coords = None
         self.change_button_coords = None
         self.detection_region = None
+        self.detailed_logging = False
 
         # Initialize PaddleOCR reader - lazy initialization to speed up startup
         self.reader = None
 
         # Initialize stat counter for tracking stats across rolls
         self.stat_counter = {}
+
+        # Initialize unmapped OCR results counter
+        self.unmapped_ocr_counter = {}
 
         self.update_status("PaddleOCR will be initialized when automation starts")
 
@@ -37,8 +41,8 @@ class SkillRerollAutomator:
         if self.status_callback:
             self.status_callback(message)
 
-    def start(self, apply_coords, change_coords, desired_stats=None):
-        """Start the automation"""
+    def start(self, apply_coords, change_coords, desired_stats=None, detailed_logging=False):
+        """Start the automation with optional detailed logging"""
         # Check if button coordinates are set
         if not apply_coords or not change_coords:
             messagebox.showerror("Error", "Please set both Apply and Change button coordinates.")
@@ -52,9 +56,16 @@ class SkillRerollAutomator:
         # Store button coordinates
         self.apply_button_coords = apply_coords
         self.change_button_coords = change_coords
+        self.detailed_logging = detailed_logging
+
+        # Reset counters for new run
+        self.unmapped_ocr_counter = {}
 
         # Log startup message
-        self.update_status("Starting automation with optimized performance")
+        if detailed_logging:
+            self.update_status("Starting automation with detailed logging")
+        else:
+            self.update_status("Starting automation (minimal logging mode)")
 
         # Always reinitialize PaddleOCR reader to ensure a clean state
         try:
@@ -87,7 +98,7 @@ class SkillRerollAutomator:
         # Show summary of stats if we have any
         if hasattr(self, 'stat_counter') and self.stat_counter:
             self.update_status("")
-            self.update_status("📊 SUMMARY OF DETECTED STATS 📊")
+            self.update_status("SUMMARY OF DETECTED STATS")
 
             # Separate stats by category
             from stats_data import get_offensive_skills, get_defensive_skills, get_base_stat_name
@@ -101,8 +112,8 @@ class SkillRerollAutomator:
             other_stats = {}
 
             for stat_key, count in self.stat_counter.items():
-                # Extract the stat name from the key (format is "stat_name: value")
-                parts = stat_key.split(":")
+                # Extract the stat name from the key (format is "stat_name +value")
+                parts = stat_key.split("+")
                 if len(parts) >= 1:
                     stat_name = parts[0].strip()
 
@@ -116,24 +127,38 @@ class SkillRerollAutomator:
 
             # Display offensive stats
             if offensive_stats:
-                self.update_status("🔴 Offensive Stats:")
+                self.update_status("Offensive Stats:")
                 for stat_key, count in sorted(offensive_stats.items(), key=lambda x: x[1], reverse=True):
                     self.update_status(f"  • {stat_key} × {count}")
 
             # Display defensive stats
             if defensive_stats:
-                self.update_status("🔵 Defensive Stats:")
+                self.update_status("Defensive Stats:")
                 for stat_key, count in sorted(defensive_stats.items(), key=lambda x: x[1], reverse=True):
                     self.update_status(f"  • {stat_key} × {count}")
 
             # Display other stats
             if other_stats:
-                self.update_status("⚪ Other Stats:")
+                self.update_status("Other Stats:")
                 for stat_key, count in sorted(other_stats.items(), key=lambda x: x[1], reverse=True):
                     self.update_status(f"  • {stat_key} × {count}")
 
-            # Reset the counter for next run
+            # Display unmapped OCR results if any
+            if hasattr(self, 'unmapped_ocr_counter') and self.unmapped_ocr_counter:
+                self.update_status("")
+                self.update_status("Unmapped OCR Results:")
+
+                # Sort by frequency (most common first)
+                sorted_unmapped = sorted(self.unmapped_ocr_counter.items(), key=lambda x: x[1], reverse=True)
+
+                # Display top 10 unmapped results
+                for text, count in sorted_unmapped[:10]:
+                    if len(text.strip()) > 0:  # Skip empty strings
+                        self.update_status(f"  • '{text}' × {count}")
+
+            # Reset the counters for next run
             self.stat_counter = {}
+            self.unmapped_ocr_counter = {}
 
     def capture_screen_region(self):
         """Capture a screenshot of the detection region or the game window with optimized performance"""
@@ -174,7 +199,12 @@ class SkillRerollAutomator:
             return {}
 
         # Parse the detected text to find stats and values
-        current_stats = parse_detected_text(results, self.update_status)
+        current_stats = parse_detected_text(
+            results,
+            self.update_status,
+            detailed_logging=self.detailed_logging,
+            unmapped_ocr_counter=self.unmapped_ocr_counter
+        )
         return current_stats
 
     def reroll_loop(self, desired_stats):
@@ -217,8 +247,9 @@ class SkillRerollAutomator:
             if self.reader:
                 current_stats = self.detect_text_in_image(screenshot)
 
-                # Log roll number and stats in a concise format
-                self.update_status(f"🔄 Roll #{iteration_count}")
+                # Only log roll information in detailed mode
+                if self.detailed_logging:
+                    self.update_status(f"Roll #{iteration_count}")
 
                 if current_stats:
                     # Prepare a concise summary of detected stats
@@ -227,38 +258,51 @@ class SkillRerollAutomator:
                     other_stats = [(stat, current_stats[stat]) for stat in current_stats
                                   if stat not in offensive_base_stats and stat not in defensive_base_stats]
 
-                    # Log all stats in a single block
-                    all_stats = []
+                    # Track stats for summary regardless of logging mode
 
-                    # Add offensive stats
-                    if off_stats:
-                        for stat, value in off_stats:
-                            all_stats.append(f"🔴 {stat}: {value}")
-                            # Track stats for summary with plus sign
-                            stat_key = f"{stat} +{value}"
-                            self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
+                    # Track offensive stats
+                    for stat, value in off_stats:
+                        # Track stats for summary with plus sign
+                        stat_key = f"{stat} +{value}"
+                        self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
 
-                    # Add defensive stats
-                    if def_stats:
-                        for stat, value in def_stats:
-                            all_stats.append(f"🔵 {stat}: {value}")
-                            # Track stats for summary with plus sign
-                            stat_key = f"{stat} +{value}"
-                            self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
+                    # Track defensive stats
+                    for stat, value in def_stats:
+                        # Track stats for summary with plus sign
+                        stat_key = f"{stat} +{value}"
+                        self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
 
-                    # Add other stats
-                    if other_stats:
-                        for stat, value in other_stats:
-                            all_stats.append(f"⚪ {stat}: {value}")
-                            # Track stats for summary with plus sign
-                            stat_key = f"{stat} +{value}"
-                            self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
+                    # Track other stats
+                    for stat, value in other_stats:
+                        # Track stats for summary with plus sign
+                        stat_key = f"{stat} +{value}"
+                        self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
 
-                    # Log all stats in a single line if possible
-                    if all_stats:
-                        self.update_status(" | ".join(all_stats))
-                else:
-                    self.update_status("⚠️ No stats detected")
+                    # Only log stats in detailed mode
+                    if self.detailed_logging:
+                        # Log all stats in a single block
+                        all_stats = []
+
+                        # Add offensive stats
+                        if off_stats:
+                            for stat, value in off_stats:
+                                all_stats.append(f"{stat}: {value}")
+
+                        # Add defensive stats
+                        if def_stats:
+                            for stat, value in def_stats:
+                                all_stats.append(f"{stat}: {value}")
+
+                        # Add other stats
+                        if other_stats:
+                            for stat, value in other_stats:
+                                all_stats.append(f"{stat}: {value}")
+
+                        # Log all stats in a single line if possible
+                        if all_stats:
+                            self.update_status(" | ".join(all_stats))
+                elif self.detailed_logging:
+                    self.update_status("No stats detected")
             else:
                 current_stats = {}
                 self.update_status("OCR reader not initialized")
