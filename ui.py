@@ -249,11 +249,14 @@ class SkillRerollUI:
             # Get game window position
             rect = self.game_connector.get_window_rect()
             if rect:
-                # Calculate relative coordinates
+                # Calculate relative coordinates to window
                 rel_x = x - rect.left
                 rel_y = y - rect.top
 
-                # Store coordinates based on button type
+                # Get the offset between window and client area
+                offset = self.game_connector.get_window_client_offset()
+
+                # Store coordinates and display information
                 if button_type == "Apply":
                     self.apply_button_coords = (rel_x, rel_y)
                     self.apply_coord_var.set(f"({rel_x}, {rel_y})")
@@ -261,7 +264,16 @@ class SkillRerollUI:
                     self.change_button_coords = (rel_x, rel_y)
                     self.change_coord_var.set(f"({rel_x}, {rel_y})")
 
-                self.update_status(f"{button_type} button set at: ({rel_x}, {rel_y})")
+                # Show additional information about the title bar offset if available
+                if offset:
+                    title_bar_height = offset[1]  # Y offset is the title bar height
+                    self.update_status(
+                        f"{button_type} button set at: ({rel_x}, {rel_y})\n"
+                        f"Window has title bar height of {title_bar_height} pixels\n"
+                        f"Coordinates will be automatically adjusted when clicking"
+                    )
+                else:
+                    self.update_status(f"{button_type} button set at: ({rel_x}, {rel_y})")
             else:
                 self.update_status("Failed to get game window position")
 
@@ -380,10 +392,24 @@ class SkillRerollUI:
             right = max(start_x, event.x)
             bottom = max(start_y, event.y)
 
+            # Store the screen coordinates for the detection region
             self.detection_region = (left, top, right, bottom)
             self.detection_region_var.set(f"({left}, {top}, {right}, {bottom})")
+
+            # Set the detection region in the automator
             self.automator.set_detection_region(self.detection_region)
-            self.update_status(f"Region set: ({left}, {top}, {right}, {bottom})")
+
+            # Show information about the region
+            offset = self.game_connector.get_window_client_offset() if self.game_connector.is_connected() else None
+            if offset:
+                title_bar_height = offset[1]  # Y offset is the title bar height
+                self.update_status(
+                    f"Region set: ({left}, {top}, {right}, {bottom})\n"
+                    f"Note: Window has title bar height of {title_bar_height} pixels\n"
+                    f"Make sure the region is within the game's client area"
+                )
+            else:
+                self.update_status(f"Region set: ({left}, {top}, {right}, {bottom})")
 
             overlay.destroy()
 
