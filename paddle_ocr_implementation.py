@@ -44,6 +44,44 @@ def normalize_text(text):
     """Normalize text by converting to lowercase and removing spaces and dots"""
     return text.lower().replace(" ", "").replace(".", "")
 
+def calculate_string_similarity(str1, str2):
+    """
+    Calculate similarity between two strings based on character matching and length.
+    Returns a score between 0 and 1, where 1 is a perfect match.
+    """
+    # If either string is empty, return 0
+    if not str1 or not str2:
+        return 0
+
+    # If strings are identical, return 1
+    if str1 == str2:
+        return 1
+
+    # Calculate character-by-character matches
+    char_matches = 0
+    for char in str1:
+        if char in str2:
+            char_matches += 1
+
+    # Calculate similarity based on:
+    # 1. Percentage of matching characters
+    # 2. Length difference penalty
+    max_length = max(len(str1), len(str2))
+
+    # Basic character similarity
+    char_similarity = char_matches / max_length
+
+    # Length difference penalty - penalize matches where lengths are very different
+    # This helps distinguish between "Defense" and "Defense Rate"
+    length_diff = abs(len(str1) - len(str2)) / max(len(str1), len(str2))
+    length_penalty = length_diff * 0.5  # Apply 50% weight to length difference
+
+    # Final similarity score
+    similarity = char_similarity - length_penalty
+
+    # Ensure the result is between 0 and 1
+    return max(0, min(similarity, 1))
+
 def get_y_center(box):
     """Calculate the y-center of a bounding box"""
     # Box format is [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
@@ -85,8 +123,28 @@ def parse_detected_text(detected_items, status_callback=None):
         # Get the y-center of this text
         y_center = get_y_center(box)
 
+        # Special case for "Arrival skill Cool time decreased" which often gets detected with its value
+        # Check for various possible OCR variations of this text
+        if "arrival" in text.lower() and "cool" in text.lower() and "time" in text.lower():
+            # Extract the stat name part
+            stat_name = "Arrival Skill Cool Time decreased."
+
+            # Try to extract the value part
+            value_match = re.search(r'(\d+)[s]?', text)
+            if value_match:
+                value = int(value_match.group(1))
+
+                # Add both the stat and its value
+                stats_with_y.append((y_center, stat_name, stat_name))
+                values_with_y.append((y_center, text, value))
+
+                if status_callback:
+                    status_callback(f"Special case: Split '{text}' into stat '{stat_name}' and value {value}")
+                continue
+
         # Check if this text contains a value - improved pattern to catch more variations
-        value_match = re.search(r'[+]?(\d+)[%]?', text)
+        # Including % for percentage values and s for seconds (used in Arrival Skill Cool Time)
+        value_match = re.search(r'[+]?(\d+)(?:[%s])?', text)
         if value_match:
             value = int(value_match.group(1))
             values_with_y.append((y_center, text, value))
@@ -97,20 +155,30 @@ def parse_detected_text(detected_items, status_callback=None):
         # Normalize the detected text
         norm_text = normalize_text(text)
 
-        # Check if this normalized text matches any of our normalized stat names
+        # Find the best matching stat based on string similarity
+        best_match = None
+        best_similarity = 0.0
+
         for norm_stat, original_stat in normalized_stats.items():
-            # More flexible matching - check if normalized stat is in normalized text
-            # or if normalized text is in normalized stat (for partial matches)
-            if norm_stat in norm_text or (len(norm_text) > 3 and norm_text in norm_stat):
-                stats_with_y.append((y_center, text, original_stat))
-                if status_callback:
-                    status_callback(f"Matched '{text}' to '{original_stat}'")
-                    # Log whether it's offensive or defensive
-                    if original_stat in offensive_stats:
-                        status_callback(f"'{original_stat}' is an offensive stat")
-                    elif original_stat in defensive_stats:
-                        status_callback(f"'{original_stat}' is a defensive stat")
-                break
+            # Calculate similarity between normalized detected text and normalized stat
+            similarity = calculate_string_similarity(norm_text, norm_stat)
+
+            # If this is the best match so far, remember it
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = original_stat
+
+        # Only consider it a match if similarity is above a threshold (0.6)
+        # This threshold is adjusted for our simplified similarity function
+        if best_match and best_similarity >= 0.6:
+            stats_with_y.append((y_center, text, best_match))
+            if status_callback:
+                status_callback(f"Matched '{text}' to '{best_match}' (similarity: {best_similarity:.2f})")
+                # Log whether it's offensive or defensive
+                if best_match in offensive_stats:
+                    status_callback(f"'{best_match}' is an offensive stat")
+                elif best_match in defensive_stats:
+                    status_callback(f"'{best_match}' is a defensive stat")
 
     # For each stat, find the value with the closest y-coordinate
     for stat_y, _, stat_name in stats_with_y:
