@@ -19,13 +19,13 @@ class SkillRerollAutomator:
         self.change_button_coords = None
         self.detection_region = None
 
-        # Initialize PaddleOCR reader
-        try:
-            self.update_status("Initializing PaddleOCR...")
-            self.reader = PaddleOCRWrapper(self.update_status)
-        except Exception as e:
-            self.update_status(f"Error initializing PaddleOCR: {str(e)}")
-            self.reader = None
+        # Initialize PaddleOCR reader - lazy initialization to speed up startup
+        self.reader = None
+
+        # Initialize stat counter for tracking stats across rolls
+        self.stat_counter = {}
+
+        self.update_status("PaddleOCR will be initialized when automation starts")
 
     def set_detection_region(self, region):
         """Set the region for text detection"""
@@ -53,9 +53,15 @@ class SkillRerollAutomator:
         self.apply_button_coords = apply_coords
         self.change_button_coords = change_coords
 
-        # Reinitialize PaddleOCR reader to ensure fresh state
+        # Log startup message
+        self.update_status("Starting automation with optimized performance")
+
+        # Always reinitialize PaddleOCR reader to ensure a clean state
         try:
-            self.update_status("Reinitializing PaddleOCR...")
+            self.update_status("Initializing PaddleOCR...")
+            # First make sure any existing reader is cleaned up
+            self.reader = None
+            # Create a fresh instance
             self.reader = PaddleOCRWrapper(self.update_status)
         except Exception as e:
             self.update_status(f"Error initializing PaddleOCR: {str(e)}")
@@ -69,124 +75,204 @@ class SkillRerollAutomator:
         return True
 
     def stop(self):
-        """Stop the automation"""
+        """Stop the automation, clean up resources, and show stats summary"""
         self.running = False
+
+        # Clean up OCR reader to prevent errors on restart
+        if hasattr(self, 'reader') and self.reader is not None:
+            self.reader = None
+
         self.update_status("⏹️ Automation stopped")
 
+        # Show summary of stats if we have any
+        if hasattr(self, 'stat_counter') and self.stat_counter:
+            self.update_status("")
+            self.update_status("📊 SUMMARY OF DETECTED STATS 📊")
+
+            # Separate stats by category
+            from stats_data import get_offensive_skills, get_defensive_skills, get_base_stat_name
+
+            offensive_base_stats = set(get_base_stat_name(stat) for stat in get_offensive_skills())
+            defensive_base_stats = set(get_base_stat_name(stat) for stat in get_defensive_skills())
+
+            # Group stats by category
+            offensive_stats = {}
+            defensive_stats = {}
+            other_stats = {}
+
+            for stat_key, count in self.stat_counter.items():
+                # Extract the stat name from the key (format is "stat_name: value")
+                parts = stat_key.split(":")
+                if len(parts) >= 1:
+                    stat_name = parts[0].strip()
+
+                    # Categorize the stat
+                    if stat_name in offensive_base_stats:
+                        offensive_stats[stat_key] = count
+                    elif stat_name in defensive_base_stats:
+                        defensive_stats[stat_key] = count
+                    else:
+                        other_stats[stat_key] = count
+
+            # Display offensive stats
+            if offensive_stats:
+                self.update_status("🔴 Offensive Stats:")
+                for stat_key, count in sorted(offensive_stats.items(), key=lambda x: x[1], reverse=True):
+                    self.update_status(f"  • {stat_key} × {count}")
+
+            # Display defensive stats
+            if defensive_stats:
+                self.update_status("🔵 Defensive Stats:")
+                for stat_key, count in sorted(defensive_stats.items(), key=lambda x: x[1], reverse=True):
+                    self.update_status(f"  • {stat_key} × {count}")
+
+            # Display other stats
+            if other_stats:
+                self.update_status("⚪ Other Stats:")
+                for stat_key, count in sorted(other_stats.items(), key=lambda x: x[1], reverse=True):
+                    self.update_status(f"  • {stat_key} × {count}")
+
+            # Reset the counter for next run
+            self.stat_counter = {}
+
     def capture_screen_region(self):
-        """Capture a screenshot of the detection region or the game window"""
+        """Capture a screenshot of the detection region or the game window with optimized performance"""
         if not self.game_connector.is_connected():
             return None
 
-        # If detection region is set, use it, otherwise capture the full game window
-        if self.detection_region:
-            region = self.detection_region
-        else:
-            rect = self.game_connector.get_window_rect()
-            if not rect:
-                return None
-            region = (rect.left, rect.top, rect.right, rect.bottom)
+        # Cache the region to avoid recalculating it on every capture
+        if not hasattr(self, '_cached_region') or self._cached_region is None:
+            # If detection region is set, use it, otherwise capture the full game window
+            if self.detection_region:
+                self._cached_region = self.detection_region
+            else:
+                rect = self.game_connector.get_window_rect()
+                if not rect:
+                    return None
+                self._cached_region = (rect.left, rect.top, rect.right, rect.bottom)
 
-        # Capture the screen region
+        # Capture the screen region with optimized settings
         try:
-            return ImageGrab.grab(bbox=region)
+            # Use all_screens=False for faster capture if we know we're only capturing the primary screen
+            return ImageGrab.grab(bbox=self._cached_region, all_screens=False)
         except Exception:
+            # Reset cached region on error
+            self._cached_region = None
             return None
 
     def detect_text_in_image(self, image):
         """Simplified method to detect text in the image using PaddleOCR"""
-        if self.reader is None or self.reader.ocr is None:
+        if self.reader is None:
             self.update_status("OCR reader not initialized")
             return {}
 
-        try:
-            # Get text from image
-            results = self.reader.readtext(image)
+        # Get text from image - error handling is now done in the readtext method
+        results = self.reader.readtext(image)
 
-            # Filter results by confidence (only keep results with >50% confidence)
-            filtered_results = [(box, text, prob) for box, text, prob in results if prob > 0.5]
-
-            # Parse the detected text to find stats and values
-            current_stats = parse_detected_text(filtered_results, self.update_status)
-            return current_stats
-
-        except Exception as e:
-            self.update_status(f"OCR error: {str(e)}")
+        # Skip processing if no text was detected
+        if not results:
             return {}
 
+        # Parse the detected text to find stats and values
+        current_stats = parse_detected_text(results, self.update_status)
+        return current_stats
+
     def reroll_loop(self, desired_stats):
-        """Simplified main reroll loop that checks for desired stats"""
+        """Optimized main reroll loop that checks for desired stats with fast-path processing"""
         self.update_status("▶️ Starting automation...")
+
+        # Track iterations for performance optimization
+        iteration_count = 0
+
+        # Initialize stat counter if it doesn't exist
+        if not hasattr(self, 'stat_counter'):
+            self.stat_counter = {}
 
         # First click the Change button to remove the current option
         self.game_connector.click_at_position(self.change_button_coords)
-        time.sleep(0.8)
+        time.sleep(0.4)  # Reduced from 0.8s to 0.4s
+
+        # Import stats categories once outside the loop
+        from stats_data import get_offensive_skills, get_defensive_skills, get_base_stat_name
+
+        # Pre-compute these sets once outside the loop
+        offensive_base_stats = set(get_base_stat_name(stat) for stat in get_offensive_skills())
+        defensive_base_stats = set(get_base_stat_name(stat) for stat in get_defensive_skills())
 
         while self.running:
+            iteration_count += 1
+
             # Click Apply button to apply a new option
             self.game_connector.click_at_position(self.apply_button_coords)
-            time.sleep(1.0)
+            time.sleep(0.5)  # Minimum time needed for the game to update
 
             # Capture the game screen
             screenshot = self.capture_screen_region()
             if screenshot is None:
                 self.update_status("Failed to capture screen, retrying...")
-                time.sleep(1)
+                time.sleep(0.5)  # Reduced wait time
                 continue
 
             # Detect text in the screenshot
             if self.reader:
                 current_stats = self.detect_text_in_image(screenshot)
 
-                # Log all detected stats with their values
+                # Log roll number and stats in a concise format
+                self.update_status(f"🔄 Roll #{iteration_count}")
+
                 if current_stats:
-                    # Import stats categories
-                    from stats_data import get_offensive_skills, get_defensive_skills, get_base_stat_name
-
-                    # Get base stat names for categorization
-                    offensive_base_stats = set(get_base_stat_name(stat) for stat in get_offensive_skills())
-                    defensive_base_stats = set(get_base_stat_name(stat) for stat in get_defensive_skills())
-
-                    # Create formatted log entries
-                    self.update_status("--- New Roll ---")
-
-                    # Log offensive stats
-                    found_offensive = [(stat, current_stats[stat]) for stat in current_stats if stat in offensive_base_stats]
-                    if found_offensive:
-                        self.update_status("Offensive stats:")
-                        for stat, value in found_offensive:
-                            self.update_status(f"  • {stat}: {value}")
-
-                    # Log defensive stats
-                    found_defensive = [(stat, current_stats[stat]) for stat in current_stats if stat in defensive_base_stats]
-                    if found_defensive:
-                        self.update_status("Defensive stats:")
-                        for stat, value in found_defensive:
-                            self.update_status(f"  • {stat}: {value}")
-
-                    # Log any unrecognized stats
+                    # Prepare a concise summary of detected stats
+                    off_stats = [(stat, current_stats[stat]) for stat in current_stats if stat in offensive_base_stats]
+                    def_stats = [(stat, current_stats[stat]) for stat in current_stats if stat in defensive_base_stats]
                     other_stats = [(stat, current_stats[stat]) for stat in current_stats
                                   if stat not in offensive_base_stats and stat not in defensive_base_stats]
+
+                    # Log all stats in a single block
+                    all_stats = []
+
+                    # Add offensive stats
+                    if off_stats:
+                        for stat, value in off_stats:
+                            all_stats.append(f"🔴 {stat}: {value}")
+                            # Track stats for summary with plus sign
+                            stat_key = f"{stat} +{value}"
+                            self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
+
+                    # Add defensive stats
+                    if def_stats:
+                        for stat, value in def_stats:
+                            all_stats.append(f"🔵 {stat}: {value}")
+                            # Track stats for summary with plus sign
+                            stat_key = f"{stat} +{value}"
+                            self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
+
+                    # Add other stats
                     if other_stats:
-                        self.update_status("Other stats:")
                         for stat, value in other_stats:
-                            self.update_status(f"  • {stat}: {value}")
+                            all_stats.append(f"⚪ {stat}: {value}")
+                            # Track stats for summary with plus sign
+                            stat_key = f"{stat} +{value}"
+                            self.stat_counter[stat_key] = self.stat_counter.get(stat_key, 0) + 1
+
+                    # Log all stats in a single line if possible
+                    if all_stats:
+                        self.update_status(" | ".join(all_stats))
                 else:
-                    self.update_status("No stats detected in this frame")
+                    self.update_status("⚠️ No stats detected")
             else:
                 current_stats = {}
                 self.update_status("OCR reader not initialized")
 
             # Check if we have desired stats
             if self.check_desired_stats(current_stats, desired_stats):
-                self.update_status("🎉 SUCCESS: All desired stats found! 🎉")
-                messagebox.showinfo("Success", "Desired stats found!")
-                self.stop()
+                self.update_status("🎉🎉🎉 SUCCESS! DESIRED STATS FOUND! 🎉🎉🎉")
+                self.stop()  # Stop automation and clean up resources
+                messagebox.showinfo("Success", "Desired stats found! Automation stopped.")
                 break
 
             # If desired stats not found, click the Change button to reroll
             self.game_connector.click_at_position(self.change_button_coords)
-            time.sleep(0.8)
+            time.sleep(0.4)  # Minimum time needed for the game to respond
 
     def check_desired_stats(self, current_stats, desired_stats):
         """
@@ -206,16 +292,15 @@ class SkillRerollAutomator:
         # Check if offensive stat matches (if specified)
         off_match = False
         if desired_stats['offensive']:
-            # Unpack the stat info (includes variation)
-            display_stat_name, min_value, variation = desired_stats['offensive'][0]
+            # Unpack the stat info
+            display_stat_name, min_value, _ = desired_stats['offensive'][0]
 
             # Get the base stat name for OCR detection
             base_stat_name = get_base_stat_name(display_stat_name)
 
             if base_stat_name in current_stats and current_stats[base_stat_name] >= min_value:
                 off_match = True
-                self.update_status(f"✓ MATCH: Offensive stat {display_stat_name} = {current_stats[base_stat_name]}" +
-                                  (f" (target: {variation})" if variation else ""))
+                self.update_status(f"✅ MATCH: Found {display_stat_name} with value {current_stats[base_stat_name]} (target: {min_value}+)")
         else:
             # No offensive stat specified, so consider it a match
             off_match = True
@@ -223,16 +308,15 @@ class SkillRerollAutomator:
         # Check if defensive stat matches (if specified)
         def_match = False
         if desired_stats['defensive']:
-            # Unpack the stat info (includes variation)
-            display_stat_name, min_value, variation = desired_stats['defensive'][0]
+            # Unpack the stat info
+            display_stat_name, min_value, _ = desired_stats['defensive'][0]
 
             # Get the base stat name for OCR detection
             base_stat_name = get_base_stat_name(display_stat_name)
 
             if base_stat_name in current_stats and current_stats[base_stat_name] >= min_value:
                 def_match = True
-                self.update_status(f"✓ MATCH: Defensive stat {display_stat_name} = {current_stats[base_stat_name]}" +
-                                  (f" (target: {variation})" if variation else ""))
+                self.update_status(f"✅ MATCH: Found {display_stat_name} with value {current_stats[base_stat_name]} (target: {min_value}+)")
         else:
             # No defensive stat specified, so consider it a match
             def_match = True
@@ -243,8 +327,9 @@ class SkillRerollAutomator:
     def emergency_stop(self):
         """Emergency stop function triggered by kill switch"""
         if self.running:
-            self.running = False
-            self.update_status("⚠️ EMERGENCY STOP: Automation stopped by ESC key")
-            messagebox.showinfo("Emergency Stop", "Automation stopped by kill switch (ESC key)")
+            # Use the regular stop method to ensure proper cleanup
+            self.stop()
+            self.update_status("⚠️ EMERGENCY STOP: Automation stopped by ESC key ⚠️")
+            messagebox.showinfo("Emergency Stop", "Automation stopped by pressing the ESC key")
             return True
         return False

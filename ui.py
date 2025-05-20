@@ -195,6 +195,11 @@ class SkillRerollUI:
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.log_text.yview)
 
+        # Clear any existing text
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state=tk.DISABLED)
+
         # Make the text widget read-only
         self.log_text.config(state=tk.DISABLED)
 
@@ -314,7 +319,7 @@ class SkillRerollUI:
                 desired_stats['defensive'].append((stat_name, def_val, variation))
                 self.update_status(f"Looking for {stat_name} with variation {variation}")
 
-        # Start the automation
+        # Start the automation (always in performance mode)
         if self.automator.start(self.apply_button_coords, self.change_button_coords, desired_stats):
             self.running = True
             self.start_button.config(state=tk.DISABLED)
@@ -326,6 +331,11 @@ class SkillRerollUI:
         self.running = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
+
+        # Make sure the window comes to the front
+        self.root.lift()
+        self.root.attributes('-topmost', True)
+        self.root.attributes('-topmost', False)
 
     def set_detection_region(self):
         """Allow user to select a region of the screen"""
