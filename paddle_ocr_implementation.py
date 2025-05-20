@@ -59,10 +59,12 @@ def parse_detected_text(detected_items, status_callback=None):
     found_stats = {}
 
     # Get stat names from stats_data module
-    from stats_data import get_all_skills, get_offensive_skills, get_defensive_skills
+    from stats_data import get_all_skills, get_offensive_skills, get_defensive_skills, get_base_stat_name
+
+    # Get the base stat names for OCR detection
     stat_names = get_all_skills()
-    offensive_stats = get_offensive_skills()
-    defensive_stats = get_defensive_skills()
+    offensive_stats = set(get_base_stat_name(stat) for stat in get_offensive_skills())
+    defensive_stats = set(get_base_stat_name(stat) for stat in get_defensive_skills())
 
     # Create normalized versions of stat names for matching
     normalized_stats = {normalize_text(stat): stat for stat in stat_names}

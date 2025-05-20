@@ -141,22 +141,24 @@ class SkillRerollAutomator:
                 # Log all detected stats with their values
                 if current_stats:
                     # Import stats categories
-                    from stats_data import get_offensive_skills, get_defensive_skills
-                    offensive_stats = get_offensive_skills()
-                    defensive_stats = get_defensive_skills()
+                    from stats_data import get_offensive_skills, get_defensive_skills, get_base_stat_name
+
+                    # Get base stat names for categorization
+                    offensive_base_stats = set(get_base_stat_name(stat) for stat in get_offensive_skills())
+                    defensive_base_stats = set(get_base_stat_name(stat) for stat in get_defensive_skills())
 
                     # Create formatted log entries
                     self.update_status("--- New Roll ---")
 
                     # Log offensive stats
-                    found_offensive = [(stat, current_stats[stat]) for stat in current_stats if stat in offensive_stats]
+                    found_offensive = [(stat, current_stats[stat]) for stat in current_stats if stat in offensive_base_stats]
                     if found_offensive:
                         self.update_status("Offensive stats:")
                         for stat, value in found_offensive:
                             self.update_status(f"  • {stat}: {value}")
 
                     # Log defensive stats
-                    found_defensive = [(stat, current_stats[stat]) for stat in current_stats if stat in defensive_stats]
+                    found_defensive = [(stat, current_stats[stat]) for stat in current_stats if stat in defensive_base_stats]
                     if found_defensive:
                         self.update_status("Defensive stats:")
                         for stat, value in found_defensive:
@@ -164,7 +166,7 @@ class SkillRerollAutomator:
 
                     # Log any unrecognized stats
                     other_stats = [(stat, current_stats[stat]) for stat in current_stats
-                                  if stat not in offensive_stats and stat not in defensive_stats]
+                                  if stat not in offensive_base_stats and stat not in defensive_base_stats]
                     if other_stats:
                         self.update_status("Other stats:")
                         for stat, value in other_stats:
@@ -194,6 +196,9 @@ class SkillRerollAutomator:
         - If both are specified: Both the offensive AND defensive stat must be found
         - If a variation is specified, it will be used for additional logging but not for matching
         """
+        # Import the base stat name function
+        from stats_data import get_base_stat_name
+
         # If no desired stats specified at all, return True
         if not desired_stats['offensive'] and not desired_stats['defensive']:
             return True
@@ -202,11 +207,14 @@ class SkillRerollAutomator:
         off_match = False
         if desired_stats['offensive']:
             # Unpack the stat info (includes variation)
-            stat_name, min_value, variation = desired_stats['offensive'][0]
+            display_stat_name, min_value, variation = desired_stats['offensive'][0]
 
-            if stat_name in current_stats and current_stats[stat_name] >= min_value:
+            # Get the base stat name for OCR detection
+            base_stat_name = get_base_stat_name(display_stat_name)
+
+            if base_stat_name in current_stats and current_stats[base_stat_name] >= min_value:
                 off_match = True
-                self.update_status(f"✓ MATCH: Offensive stat {stat_name} = {current_stats[stat_name]}" +
+                self.update_status(f"✓ MATCH: Offensive stat {display_stat_name} = {current_stats[base_stat_name]}" +
                                   (f" (target: {variation})" if variation else ""))
         else:
             # No offensive stat specified, so consider it a match
@@ -216,11 +224,14 @@ class SkillRerollAutomator:
         def_match = False
         if desired_stats['defensive']:
             # Unpack the stat info (includes variation)
-            stat_name, min_value, variation = desired_stats['defensive'][0]
+            display_stat_name, min_value, variation = desired_stats['defensive'][0]
 
-            if stat_name in current_stats and current_stats[stat_name] >= min_value:
+            # Get the base stat name for OCR detection
+            base_stat_name = get_base_stat_name(display_stat_name)
+
+            if base_stat_name in current_stats and current_stats[base_stat_name] >= min_value:
                 def_match = True
-                self.update_status(f"✓ MATCH: Defensive stat {stat_name} = {current_stats[stat_name]}" +
+                self.update_status(f"✓ MATCH: Defensive stat {display_stat_name} = {current_stats[base_stat_name]}" +
                                   (f" (target: {variation})" if variation else ""))
         else:
             # No defensive stat specified, so consider it a match
