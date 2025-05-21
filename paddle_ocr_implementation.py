@@ -17,7 +17,7 @@ class PaddleOCRWrapper:
             self.ocr = PaddleOCR(
                 use_angle_cls=False,  # Disable angle classification for speed
                 lang='en',            # English language
-                use_gpu=True,         # Use GPU for faster processing
+                use_gpu=False,        # Use CPU-only mode for smaller executable size
                 show_log=False,       # Disable logs
                 enable_mkldnn=True,   # Enable Intel MKL-DNN acceleration
                 rec_batch_num=6,      # Increase batch size for faster processing

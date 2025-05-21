@@ -333,40 +333,58 @@ class SkillRerollAutomator:
         if not desired_stats['offensive'] and not desired_stats['defensive']:
             return True
 
+        # Store match information to display only if overall match is successful
+        match_messages = []
+
         # Check if offensive stat matches (if specified)
         off_match = False
+        off_stat_info = None
         if desired_stats['offensive']:
             # Unpack the stat info
             display_stat_name, min_value, _ = desired_stats['offensive'][0]
+            off_stat_info = (display_stat_name, min_value)
 
             # Get the base stat name for OCR detection
             base_stat_name = get_base_stat_name(display_stat_name)
 
             if base_stat_name in current_stats and current_stats[base_stat_name] >= min_value:
                 off_match = True
-                self.update_status(f"✅ MATCH: Found {display_stat_name} with value {current_stats[base_stat_name]} (target: {min_value}+)")
+                match_messages.append(f"✅ MATCH: Found {display_stat_name} with value {current_stats[base_stat_name]} (target: {min_value}+)")
         else:
             # No offensive stat specified, so consider it a match
             off_match = True
 
         # Check if defensive stat matches (if specified)
         def_match = False
+        def_stat_info = None
         if desired_stats['defensive']:
             # Unpack the stat info
             display_stat_name, min_value, _ = desired_stats['defensive'][0]
+            def_stat_info = (display_stat_name, min_value)
 
             # Get the base stat name for OCR detection
             base_stat_name = get_base_stat_name(display_stat_name)
 
             if base_stat_name in current_stats and current_stats[base_stat_name] >= min_value:
                 def_match = True
-                self.update_status(f"✅ MATCH: Found {display_stat_name} with value {current_stats[base_stat_name]} (target: {min_value}+)")
+                match_messages.append(f"✅ MATCH: Found {display_stat_name} with value {current_stats[base_stat_name]} (target: {min_value}+)")
         else:
             # No defensive stat specified, so consider it a match
             def_match = True
 
+        # Only show match messages if both conditions are met
+        # or if only one stat type was specified and it matched
+        overall_match = off_match and def_match
+
+        # Only display success messages if we have an overall match
+        # or if only one stat type was specified (not both)
+        if overall_match:
+            # If both stat types were specified, show all match messages
+            for message in match_messages:
+                self.update_status(message)
+
         # Need both conditions to be true
-        return off_match and def_match
+        return overall_match
 
     def emergency_stop(self):
         """Emergency stop function triggered by kill switch"""
