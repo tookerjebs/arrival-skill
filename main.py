@@ -10,14 +10,14 @@ class SkillRerollApp:
         """Initialize the application"""
         self.root = tk.Tk()
         self.ui = SkillRerollUI(self.root)
-        
+
         # Set up cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        
+
     def on_closing(self):
         """Clean up resources when the window is closed"""
         self.ui.on_closing()
-        
+
     def run(self):
         """Start the application"""
         self.root.mainloop()
